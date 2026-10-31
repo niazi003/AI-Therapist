@@ -39,10 +39,17 @@ export function ConsentPage({ onConsentComplete }: ConsentPageProps) {
     setIsSaving(true);
     setSaveError(null);
     try {
-      await consentApi.update(purpose, granted);
-      setConsents(prev =>
-        prev.map(c => c.purpose === purpose ? { ...c, granted } : c)
-      );
+      const updatedConsent = await consentApi.update(purpose, granted);
+      setConsents(prev => {
+        const existingIndex = prev.findIndex(c => c.purpose === purpose);
+        if (existingIndex === -1) {
+          return [...prev, updatedConsent];
+        }
+
+        return prev.map((consent, index) =>
+          index === existingIndex ? updatedConsent : consent
+        );
+      });
     } catch {
       await loadConsents();
       setSaveError('Could not save this consent choice. Please try again.');
