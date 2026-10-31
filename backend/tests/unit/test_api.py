@@ -51,12 +51,24 @@ class TestLocationEndpoint:
         ) as lookup:
             response = await client.get(
                 "/api/v1/location/country",
-                headers={"X-Real-IP": "8.8.8.8"},
+                headers={"X-Forwarded-For": "8.8.8.8, 10.0.0.1"},
             )
 
         assert response.status_code == 200
         assert response.json() == {"country_code": "CA"}
         lookup.assert_awaited_once_with(ipaddress.ip_address("8.8.8.8"))
+
+    @pytest.mark.asyncio
+    async def test_country_estimate_does_not_use_server_ip_when_client_ip_is_missing(self, client):
+        with patch(
+            "app.routers.location.lookup_country_code",
+            new=AsyncMock(),
+        ) as lookup:
+            response = await client.get("/api/v1/location/country")
+
+        assert response.status_code == 503
+        assert "public IP address could not be determined" in response.json()["detail"]
+        lookup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_country_estimate_returns_service_unavailable_on_provider_error(self, client):
@@ -66,7 +78,10 @@ class TestLocationEndpoint:
             "app.routers.location.lookup_country_code",
             new=AsyncMock(side_effect=httpx.ConnectError("provider unavailable")),
         ):
-            response = await client.get("/api/v1/location/country")
+            response = await client.get(
+                "/api/v1/location/country",
+                headers={"X-Real-IP": "8.8.8.8"},
+            )
 
         assert response.status_code == 503
         assert "temporarily unavailable" in response.json()["detail"]

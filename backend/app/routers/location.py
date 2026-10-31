@@ -14,14 +14,18 @@ GEOLOCATION_URL = "https://ipwho.is"
 def _public_client_ip(
     request: Request,
 ) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    forwarded_ip = request.headers.get("x-real-ip")
-    client_ip = request.client.host if request.client else None
-
-    for candidate in (forwarded_ip, client_ip):
+    forwarded_ips = request.headers.get("x-forwarded-for", "").split(",")
+    candidates = [
+        request.headers.get("cf-connecting-ip"),
+        *forwarded_ips,
+        request.headers.get("x-real-ip"),
+        request.client.host if request.client else None,
+    ]
+    for candidate in candidates:
         if not candidate:
             continue
         try:
-            address = ipaddress.ip_address(candidate)
+            address = ipaddress.ip_address(candidate.strip())
         except ValueError:
             continue
         if address.is_global:
@@ -54,8 +58,15 @@ async def lookup_country_code(
 @router.get("/location/country")
 async def estimate_country(request: Request) -> dict[str, str]:
     """Estimate the caller's country without storing their IP address."""
+    client_ip = _public_client_ip(request)
+    if client_ip is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your public IP address could not be determined. You can still share your country in chat.",
+        )
+
     try:
-        country_code = await lookup_country_code(_public_client_ip(request))
+        country_code = await lookup_country_code(client_ip)
     except (httpx.HTTPError, ValueError) as error:
         logger.warning(
             "Country estimation provider request failed: %s",
