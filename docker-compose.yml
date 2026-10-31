@@ -1,0 +1,72 @@
+# Personal Wellbeing Companion - Docker Compose
+# This file configures all services for local development
+
+services:
+  # PostgreSQL database for application data
+  app-db:
+    image: postgres:16-alpine
+    container_name: wellbeing-app-db
+    environment:
+      POSTGRES_USER: wellbeing
+      POSTGRES_PASSWORD: wellbeing
+      POSTGRES_DB: wellbeing
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wellbeing"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wellbeing-backend
+    environment:
+      # Database
+      POSTGRES_HOST: wellbeing-app-db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: wellbeing
+      POSTGRES_PASSWORD: wellbeing
+      POSTGRES_DB: wellbeing
+      # Groq
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_CHAT_MODEL: ${GROQ_CHAT_MODEL:-openai/gpt-oss-120b}
+      GROQ_SAFETY_MODEL: ${GROQ_SAFETY_MODEL:-openai/gpt-oss-20b}
+      KOKO_HELPLINES_API_URL: ${KOKO_HELPLINES_API_URL:-https://helpline-api.koko.ai/crisis_helplines}
+      KOKO_API_ORIGIN: ${KOKO_API_ORIGIN:-http://localhost:5173}
+      # Security
+      SECRET_KEY: ${SECRET_KEY:-changeme-insecure-default-key}
+      DEBUG: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      app-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # React frontend (development mode)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wellbeing-frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: wellbeing-postgres-data
+
+networks:
+  default:
+    name: wellbeing-network
